@@ -27,6 +27,7 @@ from .permission import (
     perm_manager,
     perm_required,
 )
+from .prefixless import PrefixlessCommandDispatcher
 from .utils import print_logo
 from .web import QQAdminWebController
 
@@ -50,6 +51,7 @@ class QQManagerPlugin(Star):
         self.member = MemberHandle(self)
         self.curfew = CurfewHandle(self.context, self.cfg)
         self.web = QQAdminWebController(context, self.cfg, self.db, self.group_cache)
+        self.prefixless = PrefixlessCommandDispatcher(self)
         self.web.register_routes()
 
     async def initialize(self):
@@ -106,24 +108,47 @@ class QQManagerPlugin(Star):
         parts = self._command_tail(event).split(maxsplit=1)
         return parts[0].strip() if parts else ""
 
+    def _help_text(self) -> str:
+        return "\n".join(
+            [
+                "【QQ简单群管帮助】",
+                "基础群管：禁言 <秒数> @群友 / 解禁 @群友 / 踢 @群友 / 拉黑 @群友 / 删除总黑名单 QQ / 删除退群黑名单 QQ",
+                "消息管理：撤回",
+                "风控审核：禁词禁言 <秒数> / 设置禁词 / 内置禁词 开|关 / 刷屏禁言 <秒数> / 开启宵禁 / 关闭宵禁",
+                "入群管理：进群审核 开|关 / 进群白词 / 进群黑词 / 进群黑名单 / 退群通知 / 退群拉黑 / 批准 / 驳回",
+                "群内超管：可直接输入命令，无需 / 前缀。",
+                "私聊超管：收到踢除清单后，可回复 是、all 或 1,3。",
+                "群工具：群友信息",
+                "配置：群管配置 / 群管重置 <群号|all>，默认关闭，请先在插件设置页或群管配置中开启本群。",
+            ]
+        )
+
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
+    async def prefixless_group_command(self, event: AiocqhttpMessageEvent):
+        await self.prefixless.handle(event)
+
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
+    @filter.event_message_type(EventMessageType.PRIVATE_MESSAGE)
+    async def private_kick_short_reply(self, event: AiocqhttpMessageEvent):
+        if not self._is_private_superuser(event):
+            return
+
+        result = await self.global_blacklist.execute_latest_short_reply(
+            event.message_str,
+            fallback_client=event.bot,
+        )
+        if result is None:
+            return
+
+        await event.send(event.plain_result(result))
+        event.stop_event()
+
     @filter.command("群管帮助", alias={"QQ管理帮助", "qq群管帮助"})
     @perm_required(PermLevel.MEMBER, check_at=False, check_enabled=False)
     async def show_help(self, event: AiocqhttpMessageEvent):
         """查看 QQ 群管理插件命令帮助"""
-        yield event.plain_result(
-            "\n".join(
-                [
-                    "【QQ简单群管帮助】",
-                    "基础群管：禁言 <秒数> @群友 / 解禁 @群友 / 踢 @群友 / 拉黑 @群友 / 删除总黑名单 QQ / 删除退群黑名单 QQ",
-                    "消息管理：撤回",
-                    "风控审核：禁词禁言 <秒数> / 设置禁词 / 内置禁词 开|关 / 刷屏禁言 <秒数> / 开启宵禁 / 关闭宵禁",
-                    "入群管理：进群审核 开|关 / 进群白词 / 进群黑词 / 进群黑名单 / 退群通知 / 退群拉黑 / 批准 / 驳回",
-                    "私聊超管：确认踢除 <任务ID> all|1,2 / 取消踢除 <任务ID>",
-                    "群工具：群友信息",
-                    "配置：群管配置 / 群管重置 <群号|all>，默认关闭，请先在插件设置页或群管配置中开启本群。",
-                ]
-            )
-        )
+        yield event.plain_result(self._help_text())
 
     async def _is_group_enabled(self, event: AiocqhttpMessageEvent) -> bool:
         if event.is_private_chat():

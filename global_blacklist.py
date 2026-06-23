@@ -40,6 +40,17 @@ class PendingKickTask:
 
 class GlobalBlacklistService:
     _PENDING_TTL_SECONDS = 1800
+    _SHORT_ALL_REPLIES = {
+        "是",
+        "确认",
+        "确定",
+        "好",
+        "all",
+        "全部",
+        "所有",
+        "yes",
+        "y",
+    }
     _pending_kick_tasks: dict[str, PendingKickTask] = {}
 
     def __init__(
@@ -204,6 +215,26 @@ class GlobalBlacklistService:
             return "任务不存在或已过期"
         return f"已取消任务：{normalized_task_id}"
 
+    async def execute_latest_short_reply(
+        self,
+        text: str,
+        *,
+        fallback_client: Any | None = None,
+    ) -> str | None:
+        selection = self._parse_short_reply(text)
+        if selection is None:
+            return None
+
+        task_id = self._latest_pending_task_id()
+        if task_id is None:
+            return None
+
+        return await self.execute_pending_kick(
+            task_id,
+            selection,
+            fallback_client=fallback_client,
+        )
+
     async def send_super_notice(
         self,
         message: str,
@@ -313,9 +344,9 @@ class GlobalBlacklistService:
             lines.extend(
                 [
                     "",
-                    f"回复 /确认踢除 {task.task_id} all 可踢除全部可踢群",
-                    f"回复 /确认踢除 {task.task_id} 1,3 可踢除指定序号",
-                    f"回复 /取消踢除 {task.task_id} 可取消",
+                    "直接回复 是 或 all 可踢除全部可踢群",
+                    "直接回复 1,3 可踢除指定序号",
+                    f"也可回复 /取消踢除 {task.task_id} 取消任务",
                 ]
             )
         else:
@@ -370,6 +401,25 @@ class GlobalBlacklistService:
         ]
         for task_id in expired:
             self._pending_kick_tasks.pop(task_id, None)
+
+    def _latest_pending_task_id(self) -> str | None:
+        self._expire_pending_tasks()
+        if not self._pending_kick_tasks:
+            return None
+
+        latest = max(
+            self._pending_kick_tasks.values(),
+            key=lambda task: task.created_at,
+        )
+        return latest.task_id or None
+
+    def _parse_short_reply(self, text: str) -> str | None:
+        normalized = str(text or "").strip().lower()
+        if normalized in self._SHORT_ALL_REPLIES:
+            return "all"
+        if re.fullmatch(r"\d+(?:[\s,，、]+\d+)*", normalized):
+            return normalized
+        return None
 
     def _new_task_id(self, user_id: str) -> str:
         for _ in range(10):

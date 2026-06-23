@@ -2,8 +2,8 @@ name: astrbot_plugin_qqmanager
 display_name: QQ简单群管
 desc: "[仅 aiocqhttp] QQ 简单群管插件，提供按群启用、禁言、解禁、踢人、总黑名单、退群黑名单、跨群踢除确认、撤回、进群审核、主人QQ私信通知、禁词、刷屏检测、宵禁、群友信息和配置面板等能力。"
 short_desc: QQ 简单群管、进群审核与黑名单管理。
-help: 发送 /群管帮助 查看命令用法。
-version: v0.2.4
+help: 发送 群管帮助 或 /群管帮助 查看命令用法。
+version: v0.2.5
 author: thanatos
 repo: "https://github.com/ThanatosXingYu/astrbot_plugin_qqmanager"
 support_platforms:
