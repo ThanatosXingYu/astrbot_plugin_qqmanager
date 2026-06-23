@@ -81,10 +81,6 @@ class GroupCurfew:
                 return
             self.whole_ban_status = True
         try:
-            await self.bot.send_group_msg(
-                group_id=int(self.group_id),
-                message=f"【{self._start_time_str}】本群宵禁开始！",
-            )
             await self.bot.set_group_whole_ban(group_id=int(self.group_id), enable=True)
             logger.info(f"群 {self.group_id} 已开启全体禁言")
         except Exception as e:
@@ -102,10 +98,6 @@ class GroupCurfew:
                 return
             self.whole_ban_status = False
         try:
-            await self.bot.send_group_msg(
-                group_id=int(self.group_id),
-                message=f"【{self._end_time_str}】本群宵禁结束！",
-            )
             await self.bot.set_group_whole_ban(
                 group_id=int(self.group_id), enable=False
             )

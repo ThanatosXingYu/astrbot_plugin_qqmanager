@@ -18,6 +18,7 @@ const THEME_STORAGE_KEY = "qqmanager-page-theme-mode";
 const DEFAULT_GROUP_ID = "__default__";
 const COLLAPSED_GROUP_OBJECT_PATHS = new Set(["perms"]);
 const FOLLOW_DEFAULT_KEY = "follow_default";
+const PLUGIN_ENABLED_KEY = "plugin_enabled";
 
 let api = null;
 let bootstrapData = null;
@@ -188,7 +189,7 @@ function isGroupFieldDisabled(path) {
   if (!Boolean(currentGroup.config?.[FOLLOW_DEFAULT_KEY])) {
     return false;
   }
-  return path !== FOLLOW_DEFAULT_KEY;
+  return path !== FOLLOW_DEFAULT_KEY && path !== PLUGIN_ENABLED_KEY;
 }
 
 function updateGroupActionState() {
@@ -254,11 +255,14 @@ function filterAndRenderGroups() {
 
 function renderGroupForm(groupPayload) {
   currentGroup = groupPayload;
+  const schema = groupPayload.is_default_group
+    ? bootstrapData.schema.default_group || bootstrapData.schema.group || {}
+    : bootstrapData.schema.group || {};
 
   renderGroupDetailHeader(els, groupPayload);
   renderSchemaFields(
     els.groupForm,
-    bootstrapData.schema.group || {},
+    schema,
     buildGroupFormValues(groupPayload),
     {
       singleColumn: true,

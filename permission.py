@@ -183,6 +183,17 @@ def perm_required(
                 event.stop_event()
                 return
 
+            # 判断权限
+            result = await perm_manager.perm_block(
+                event, bot_perm=bot_perm, perm_key=actual_perm_key, check_at=check_at
+            )
+            if result:
+                event.stop_event()
+                if result.startswith("你没"):
+                    return
+                yield event.plain_result(result)
+                return
+
             if check_enabled and perm_manager.db is not None:
                 enabled = await perm_manager.db.get(
                     event.get_group_id(), "plugin_enabled", False
@@ -191,15 +202,6 @@ def perm_required(
                     yield event.plain_result("本群未启用QQ简单群管，请先在插件设置页开启。")
                     event.stop_event()
                     return
-
-            # 判断权限
-            result = await perm_manager.perm_block(
-                event, bot_perm=bot_perm, perm_key=actual_perm_key, check_at=check_at
-            )
-            if result:
-                yield event.plain_result(result)
-                event.stop_event()
-                return
 
             # 执行原始方法
             if inspect.isasyncgenfunction(func):

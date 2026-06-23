@@ -42,6 +42,7 @@ class QQAdminDB:
 
     REVERSE_FIELD_MAP = {v: k for k, v in FIELD_MAP.items()}
     FOLLOW_DEFAULT_MARKER = "__follow_default__"
+    GROUP_LOCAL_FIELDS = {"plugin_enabled"}
 
     # ================================================================
 
@@ -122,6 +123,8 @@ class QQAdminDB:
             return True
 
         for key, value in clean.items():
+            if key in self.GROUP_LOCAL_FIELDS:
+                continue
             if key not in self.default_cfg:
                 return False
             if value != self.default_cfg[key]:
@@ -159,6 +162,10 @@ class QQAdminDB:
         raw = self._cache.get(gid)
         if self._is_follow_default_data(raw):
             data = copy.deepcopy(self.default_cfg)
+            if isinstance(raw, dict):
+                for key in self.GROUP_LOCAL_FIELDS:
+                    if key in raw:
+                        data[key] = copy.deepcopy(raw[key])
         else:
             data = self._strip_meta_fields(raw) or {}
         for key, value in self.default_cfg.items():
@@ -339,7 +346,11 @@ class QQAdminDB:
         await self._save_to_db(gid, data)
         return self.get_group_snapshot(gid)
 
-    async def follow_default(self, gid: str | None = None):
+    async def follow_default(
+        self,
+        gid: str | None = None,
+        local_overrides: dict | None = None,
+    ):
         """让指定群（或全部群）重新跟随默认群配置"""
         if gid is None:
             if self._conn:
@@ -350,6 +361,20 @@ class QQAdminDB:
             return
 
         normalized_gid = str(gid)
+        clean_overrides = {
+            key: copy.deepcopy(value)
+            for key, value in (local_overrides or {}).items()
+            if key in self.GROUP_LOCAL_FIELDS
+        }
+        if clean_overrides:
+            self._cache[normalized_gid] = {
+                self.FOLLOW_DEFAULT_MARKER: True,
+                **clean_overrides,
+            }
+            await self._save_to_db(normalized_gid, self._cache[normalized_gid])
+            logger.info(f"群聊{normalized_gid}的群管配置已跟随默认值并保留本地开关")
+            return
+
         if self._conn:
             await self._conn.execute(
                 "DELETE FROM groups WHERE group_id = ?",

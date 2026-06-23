@@ -69,6 +69,7 @@ class QQManagerPlugin(Star):
             asyncio.create_task(self.curfew.initialize())
 
     @filter.command("群管帮助", alias={"QQ管理帮助", "qq群管帮助"})
+    @perm_required(PermLevel.MEMBER, check_at=False, check_enabled=False)
     async def show_help(self, event: AiocqhttpMessageEvent):
         """查看 QQ 群管理插件命令帮助"""
         yield event.plain_result(

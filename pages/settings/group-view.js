@@ -20,14 +20,14 @@ function buildGroupRoleBadge(group) {
 }
 
 function buildPluginStatusBadge(group) {
+  if (group?.is_default_group) {
+    return null;
+  }
+
   const enabled = Boolean(group?.config?.plugin_enabled);
   const badge = document.createElement("span");
   badge.className = `plugin-status-badge ${enabled ? "enabled" : "disabled"}`;
-  if (group?.is_default_group) {
-    badge.textContent = enabled ? "默认启用" : "默认关闭";
-  } else {
-    badge.textContent = enabled ? "已启用" : "未启用";
-  }
+  badge.textContent = enabled ? "已启用" : "未启用";
   return badge;
 }
 
@@ -78,7 +78,10 @@ export function renderGroupCards({
     if (roleBadge) {
       title.appendChild(roleBadge);
     }
-    title.appendChild(buildPluginStatusBadge(group));
+    const pluginStatusBadge = buildPluginStatusBadge(group);
+    if (pluginStatusBadge) {
+      title.appendChild(pluginStatusBadge);
+    }
 
     main.appendChild(title);
 

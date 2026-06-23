@@ -9,7 +9,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 
 from ..config import PluginConfig
 from ..data import QQAdminDB
-from ..utils import get_nickname, parse_bool
+from ..utils import parse_bool
 
 
 class BanproHandle:
@@ -198,10 +198,6 @@ class BanproHandle:
                         group_id=int(group_id),
                         user_id=int(sender_id),
                         duration=ban_time,
-                    )
-                    nickname = await get_nickname(event, sender_id)
-                    await event.send(
-                        event.plain_result(f"检测到{nickname}刷屏，已禁言")
                     )
                 except Exception:
                     logger.error(f"bot在群{group_id}权限不足，禁言失败")

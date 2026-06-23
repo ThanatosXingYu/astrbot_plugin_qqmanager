@@ -121,6 +121,10 @@ class JoinHandle:
     async def _send_owner(self, client: CQHttp, gid: str, message: str) -> bool:
         group_config = self.db.get_group_snapshot(gid)
         owner_ids = self._clean_ids(group_config.get("owner_ids", []))
+        if not owner_ids:
+            owner_ids = self._clean_ids(self.cfg.default.get("owner_ids", []))
+        if not owner_ids:
+            owner_ids = self._clean_ids(self.cfg.admins_id)
         return await self._send_private(client, owner_ids, message, "主人QQ")
 
     # -----------修改配置-----------------
@@ -416,8 +420,6 @@ class JoinHandle:
             group_config = self.db.get_group_snapshot(gid)
             if group_config.get("admin_audit", self.cfg.admin_audit):
                 await self._send_admin(client, notice)
-            else:
-                await event.send(event.plain_result(notice))
 
         # 主动退群事件
         elif (
@@ -441,9 +443,7 @@ class JoinHandle:
                     block_status,
                 )
                 if leave_notify:
-                    sent_to_owner = await self._send_owner(client, gid, msg)
-                    if not sent_to_owner:
-                        await event.send(event.plain_result(msg))
+                    await self._send_owner(client, gid, msg)
 
         # 进群欢迎、禁言
         elif raw.get("notice_type") == "group_increase" and uid != event.get_self_id():

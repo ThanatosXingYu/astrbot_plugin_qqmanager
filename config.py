@@ -135,6 +135,7 @@ class PluginConfig(ConfigNode):
 
         self.spamming_count = 5
         self.spamming_interval = 0.5
+        self._enforce_quiet_defaults()
         self.refresh_runtime_settings()
 
     @staticmethod
@@ -179,6 +180,22 @@ class PluginConfig(ConfigNode):
             "level_threshold": self.level_threshold,
             "perms": dict(self.perms),
         }
+
+    def _enforce_quiet_defaults(self) -> None:
+        """修正旧配置里会让默认群影响真实群安静模式的值。"""
+        changed = False
+        if isinstance(self.default, dict):
+            if self.default.get("plugin_enabled") is not False:
+                self.default["plugin_enabled"] = False
+                changed = True
+            if self.default.get("join_welcome"):
+                self.default["join_welcome"] = ""
+                changed = True
+        if self.admin_audit is not False:
+            self.admin_audit = False
+            changed = True
+        if changed:
+            self.save_config()
 
     def refresh_runtime_settings(self) -> None:
         """刷新依赖配置的运行时缓存。"""

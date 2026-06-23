@@ -36,7 +36,15 @@ class QQAdminPageService:
                 "type": "bool",
                 "default": True,
             },
-            **self.schema.get("default", {}).get("items", {}),
+            **self._get_group_local_schema(),
+            **self._get_default_schema_items(include_group_local=False),
+            **self._get_group_overlay_schema(),
+        }
+
+    @property
+    def default_group_schema(self) -> dict[str, Any]:
+        return {
+            **self._get_default_schema_items(include_group_local=False),
             **self._get_group_overlay_schema(),
         }
 
@@ -51,6 +59,7 @@ class QQAdminPageService:
         return {
             "schema": {
                 "group": self.group_schema,
+                "default_group": self.default_group_schema,
                 "global": self.global_schema,
             },
             "global_config": self.get_global_config(),
@@ -60,7 +69,7 @@ class QQAdminPageService:
     def get_default_group_entry(self) -> dict[str, Any]:
         return {
             "group_id": DEFAULT_GROUP_ID,
-            "group_name": "默认群",
+            "group_name": "默认模板",
             "avatar": "",
             "member_count": 0,
             "max_member_count": 0,
@@ -150,9 +159,13 @@ class QQAdminPageService:
             {"type": "object", "items": self.group_schema},
             {FOLLOW_DEFAULT_KEY: follow_default_current, **current},
         )
+        plugin_enabled = bool(sanitized.get("plugin_enabled", False))
         follow_default = bool(sanitized.pop(FOLLOW_DEFAULT_KEY, True))
         if follow_default:
-            await self.db.follow_default(group_id)
+            await self.db.follow_default(
+                group_id,
+                {"plugin_enabled": plugin_enabled} if plugin_enabled else None,
+            )
         else:
             await self.db.replace_group(group_id, sanitized)
         self.group_cache.invalidate(group_id)
@@ -172,7 +185,7 @@ class QQAdminPageService:
             "group_id": DEFAULT_GROUP_ID,
             "group_info": {
                 "group_id": DEFAULT_GROUP_ID,
-                "group_name": "默认群",
+                "group_name": "默认模板",
                 "avatar": "",
                 "member_count": 0,
                 "max_member_count": 0,
@@ -217,7 +230,7 @@ class QQAdminPageService:
         current = copy.deepcopy(self.cfg.build_group_default_config())
         sanitized = self._sanitize_value(
             payload,
-            {"type": "object", "items": self.group_schema},
+            {"type": "object", "items": self.default_group_schema},
             {FOLLOW_DEFAULT_KEY: False, **current},
         )
         sanitized.pop(FOLLOW_DEFAULT_KEY, None)
@@ -260,7 +273,7 @@ class QQAdminPageService:
         return member_count <= 0
 
     def _apply_group_level_updates(self, updated: dict[str, Any]) -> None:
-        default_fields = self.schema.get("default", {}).get("items", {})
+        default_fields = self._get_default_schema_items(include_group_local=False)
         default_updates = {
             key: value for key, value in updated.items() if key in default_fields
         }
@@ -280,6 +293,25 @@ class QQAdminPageService:
             self._merge_dict(self.cfg.perms, updated["perms"])
 
         perm_manager.refresh(self.cfg, self.db)
+
+    def _get_default_schema_items(
+        self,
+        *,
+        include_group_local: bool,
+    ) -> dict[str, Any]:
+        items = copy.deepcopy(self.schema.get("default", {}).get("items", {}))
+        if not include_group_local:
+            for key in QQAdminDB.GROUP_LOCAL_FIELDS:
+                items.pop(key, None)
+        return items
+
+    def _get_group_local_schema(self) -> dict[str, Any]:
+        items = self.schema.get("default", {}).get("items", {})
+        return {
+            key: copy.deepcopy(items[key])
+            for key in QQAdminDB.GROUP_LOCAL_FIELDS
+            if key in items
+        }
 
     def _get_group_overlay_schema(self) -> dict[str, Any]:
         keys = [
