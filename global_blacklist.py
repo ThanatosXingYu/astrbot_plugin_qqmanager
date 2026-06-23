@@ -332,9 +332,9 @@ class GlobalBlacklistService:
         can_kick = [item for item in task.candidates if item.can_kick]
         cannot_kick = [item for item in task.candidates if not item.can_kick]
 
-        lines.append("可踢群聊：")
+        lines.append("【可踢群聊】")
         lines.extend([f"{item.index}. {item.label}" for item in can_kick] or ["无"])
-        lines.append("不可踢群聊：")
+        lines.append("【不可踢群聊】")
         lines.extend(
             [f"{item.index}. {item.label}：{item.reason}" for item in cannot_kick]
             or ["无"]
