@@ -19,6 +19,12 @@ const DEFAULT_GROUP_ID = "__default__";
 const COLLAPSED_GROUP_OBJECT_PATHS = new Set(["perms"]);
 const FOLLOW_DEFAULT_KEY = "follow_default";
 const PLUGIN_ENABLED_KEY = "plugin_enabled";
+const EDITABLE_WHEN_FOLLOWING = new Set([
+  FOLLOW_DEFAULT_KEY,
+  PLUGIN_ENABLED_KEY,
+  "block_ids",
+  "leave_block_ids",
+]);
 
 let api = null;
 let bootstrapData = null;
@@ -173,9 +179,16 @@ function buildGroupFormValues(groupPayload) {
   const defaultValues = getDefaultGroupConfigValues();
   const currentValues = groupPayload?.config || {};
   const followDefault = Boolean(currentValues[FOLLOW_DEFAULT_KEY]);
+  const editableValues = {};
+  EDITABLE_WHEN_FOLLOWING.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(currentValues, key)) {
+      editableValues[key] = currentValues[key];
+    }
+  });
   const mergedValues = followDefault && !groupPayload?.is_default_group
     ? {
         ...defaultValues,
+        ...editableValues,
         [FOLLOW_DEFAULT_KEY]: true,
       }
     : currentValues;
@@ -189,7 +202,7 @@ function isGroupFieldDisabled(path) {
   if (!Boolean(currentGroup.config?.[FOLLOW_DEFAULT_KEY])) {
     return false;
   }
-  return path !== FOLLOW_DEFAULT_KEY && path !== PLUGIN_ENABLED_KEY;
+  return !EDITABLE_WHEN_FOLLOWING.has(path);
 }
 
 function updateGroupActionState() {

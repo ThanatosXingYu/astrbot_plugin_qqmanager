@@ -32,7 +32,7 @@ class QQAdminPageService:
         return {
             FOLLOW_DEFAULT_KEY: {
                 "description": "跟随默认配置",
-                "hint": "开启后，该群直接沿用默认群配置，下面的群专属配置项将不可编辑。",
+                "hint": "开启后，该群沿用默认模板；启用开关、进群黑名单、退群黑名单仍可在当前群单独查看和调整。",
                 "type": "bool",
                 "default": True,
             },
@@ -44,7 +44,7 @@ class QQAdminPageService:
     @property
     def default_group_schema(self) -> dict[str, Any]:
         return {
-            **self._get_default_schema_items(include_group_local=False),
+            **self._get_default_template_schema_items(),
             **self._get_group_overlay_schema(),
         }
 
@@ -159,13 +159,10 @@ class QQAdminPageService:
             {"type": "object", "items": self.group_schema},
             {FOLLOW_DEFAULT_KEY: follow_default_current, **current},
         )
-        plugin_enabled = bool(sanitized.get("plugin_enabled", False))
+        local_overrides = self._get_group_local_overrides(sanitized)
         follow_default = bool(sanitized.pop(FOLLOW_DEFAULT_KEY, True))
         if follow_default:
-            await self.db.follow_default(
-                group_id,
-                {"plugin_enabled": plugin_enabled} if plugin_enabled else None,
-            )
+            await self.db.follow_default(group_id, local_overrides)
         else:
             await self.db.replace_group(group_id, sanitized)
         self.group_cache.invalidate(group_id)
@@ -273,7 +270,7 @@ class QQAdminPageService:
         return member_count <= 0
 
     def _apply_group_level_updates(self, updated: dict[str, Any]) -> None:
-        default_fields = self._get_default_schema_items(include_group_local=False)
+        default_fields = self._get_default_template_schema_items()
         default_updates = {
             key: value for key, value in updated.items() if key in default_fields
         }
@@ -283,8 +280,6 @@ class QQAdminPageService:
             self.cfg.admin_audit = updated["admin_audit"]
         if "random_ban_time" in updated:
             self.cfg.random_ban_time = updated["random_ban_time"]
-        if "level_threshold" in updated:
-            self.cfg.level_threshold = updated["level_threshold"]
         if "global_block_ids" in updated:
             self.cfg.global_block_ids = self.global_blacklist.clean_ids(
                 updated["global_block_ids"]
@@ -313,16 +308,35 @@ class QQAdminPageService:
             if key in items
         }
 
+    def _get_default_template_schema_items(self) -> dict[str, Any]:
+        items = self._get_default_schema_items(include_group_local=True)
+        items.pop("plugin_enabled", None)
+        return items
+
     def _get_group_overlay_schema(self) -> dict[str, Any]:
         keys = [
             "admin_audit",
             "random_ban_time",
-            "level_threshold",
             "perms",
         ]
         return {
             key: copy.deepcopy(self.schema[key]) for key in keys if key in self.schema
         }
+
+    def _get_group_local_overrides(self, values: dict[str, Any]) -> dict[str, Any]:
+        local_overrides: dict[str, Any] = {}
+        for key in QQAdminDB.GROUP_LOCAL_FIELDS:
+            if key not in values:
+                continue
+            value = copy.deepcopy(values[key])
+            default_value = self.db.default_cfg.get(key)
+            if key == "plugin_enabled":
+                if bool(value):
+                    local_overrides[key] = True
+                continue
+            if value != default_value:
+                local_overrides[key] = value
+        return local_overrides
 
     @staticmethod
     def _merge_dict(target: dict[str, Any], source: dict[str, Any] | None) -> None:

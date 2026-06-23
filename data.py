@@ -42,11 +42,13 @@ class QQAdminDB:
 
     REVERSE_FIELD_MAP = {v: k for k, v in FIELD_MAP.items()}
     FOLLOW_DEFAULT_MARKER = "__follow_default__"
-    GROUP_LOCAL_FIELDS = {"plugin_enabled"}
+    GROUP_LOCAL_FIELDS = ("plugin_enabled", "block_ids", "leave_block_ids")
+    DEFAULT_AGGREGATED_FIELDS = ("leave_block_ids",)
 
     # ================================================================
 
     def __init__(self, config: PluginConfig):
+        self.cfg = config
         self.db_path = config.db_path
 
         # 默认字段（动态配置核心）
@@ -221,6 +223,20 @@ class QQAdminDB:
         """
         写入字段
         """
+        if field in self.GROUP_LOCAL_FIELDS and self.is_group_follow_default(gid):
+            raw = self._cache.get(gid)
+            data = {
+                self.FOLLOW_DEFAULT_MARKER: True,
+            }
+            if isinstance(raw, dict):
+                for key in self.GROUP_LOCAL_FIELDS:
+                    if key in raw:
+                        data[key] = copy.deepcopy(raw[key])
+            data[field] = copy.deepcopy(value)
+            self._cache[gid] = data
+            await self._save_to_db(gid, data)
+            return
+
         await self.ensure_group(gid)
         self._cache[gid][field] = value
         await self._save_to_db(gid, self._cache[gid])
@@ -233,10 +249,25 @@ class QQAdminDB:
         """
         列表字段追加（自动创建列表）
         """
+        if field in self.DEFAULT_AGGREGATED_FIELDS and self.is_group_follow_default(gid):
+            self._add_to_default_list(field, value)
+            return
+
         lst = list(await self.get(gid, field, []))
         if value not in lst:
             lst.append(value)
             await self.set(gid, field, lst)
+
+    def _add_to_default_list(self, field: str, value):
+        current = list(self.default_cfg.get(field, []))
+        if value in current:
+            return
+
+        current.append(value)
+        self.default_cfg[field] = copy.deepcopy(current)
+        if isinstance(self.cfg.default, dict) and field in self.cfg.default:
+            self.cfg.default[field] = copy.deepcopy(current)
+            self.cfg.save_config()
 
     async def remove(self, gid: str, field: str, value):
         """

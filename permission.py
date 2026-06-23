@@ -22,16 +22,14 @@ class PermLevel(IntEnum):
     SUPERUSER = 0
     OWNER = 1
     ADMIN = 2
-    HIGH = 3
-    MEMBER = 4
-    UNKNOWN = 5
+    MEMBER = 3
+    UNKNOWN = 4
 
     def __str__(self):
         return {
             PermLevel.SUPERUSER: "超管",
             PermLevel.OWNER: "群主",
             PermLevel.ADMIN: "管理员",
-            PermLevel.HIGH: "高等级成员",
             PermLevel.MEMBER: "成员",
             PermLevel.UNKNOWN: "未知/无权限",
         }.get(self, "未知/无权限")
@@ -42,7 +40,6 @@ class PermLevel(IntEnum):
             "超管": cls.SUPERUSER,
             "群主": cls.OWNER,
             "管理员": cls.ADMIN,
-            "高等级成员": cls.HIGH,
             "成员": cls.MEMBER,
             "未知": cls.UNKNOWN,
             "无权限": cls.UNKNOWN,
@@ -85,20 +82,13 @@ class PermissionManager:
         except Exception:
             return PermLevel.UNKNOWN
         role = info.get("role", "unknown")
-        level = int(info.get("level", 0))
-        group_config = (
-            self.db.get_group_snapshot(group_id)
-            if self.db is not None
-            else {"level_threshold": self.cfg.level_threshold if self.cfg else 50}
-        )
-        level_threshold = int(group_config.get("level_threshold", 50))
         match role:
             case "owner":
                 return PermLevel.OWNER
             case "admin":
                 return PermLevel.ADMIN
             case "member":
-                return PermLevel.HIGH if level >= level_threshold else PermLevel.MEMBER
+                return PermLevel.MEMBER
             case _:
                 return PermLevel.UNKNOWN
 

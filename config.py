@@ -112,7 +112,6 @@ class PluginConfig(ConfigNode):
     default: dict
     admin_audit: bool
     random_ban_time: str
-    level_threshold: int
     global_block_ids: list
     perms: dict
 
@@ -177,7 +176,6 @@ class PluginConfig(ConfigNode):
             **self.default,
             "admin_audit": self.admin_audit,
             "random_ban_time": self.random_ban_time,
-            "level_threshold": self.level_threshold,
             "perms": dict(self.perms),
         }
 
