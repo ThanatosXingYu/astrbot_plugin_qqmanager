@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 from astrbot.core.message.components import At, Reply
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
@@ -61,18 +62,54 @@ class NormalHandle:
     def _extract_target_ids(event: AiocqhttpMessageEvent) -> list[str]:
         target_ids = get_ats(event)
         raw = event.message_str.partition(" ")[2]
-        for token in raw.split():
-            normalized = token.strip()
-            if normalized.isdigit() and normalized not in target_ids:
+        for normalized in re.findall(r"\d+", raw):
+            if normalized not in target_ids:
                 target_ids.append(normalized)
         return target_ids
+
+    @staticmethod
+    def _brief_error(exc: Exception) -> str:
+        message = str(exc).strip() or exc.__class__.__name__
+        return message[:80]
+
+    async def _current_group_label(self, event: AiocqhttpMessageEvent) -> str:
+        group_id = event.get_group_id()
+        group_name = f"群 {group_id}"
+        try:
+            info = await event.bot.get_group_info(group_id=int(group_id))
+            data = info.get("data") if isinstance(info, dict) else None
+            source = data if isinstance(data, dict) else info
+            group_name = str(source.get("group_name") or group_name)
+        except Exception:
+            pass
+        return f"{group_name}({group_id})"
+
+    async def _kick_current_group_user(
+        self,
+        event: AiocqhttpMessageEvent,
+        user_id: str,
+    ) -> str:
+        try:
+            target_name = await get_nickname(event, user_id=user_id)
+        except Exception:
+            target_name = user_id
+
+        try:
+            await event.bot.set_group_kick(
+                group_id=int(event.get_group_id()),
+                user_id=int(user_id),
+                reject_add_request=True,
+            )
+            return f"{user_id}-{target_name} 已踢出"
+        except Exception as exc:
+            return f"{user_id}-{target_name} 踢出失败：{self._brief_error(exc)}"
 
     async def set_group_block(
         self,
         event: AiocqhttpMessageEvent,
         blacklist_service: GlobalBlacklistService,
     ):
-        """拉黑 @user / 拉黑 QQ：加入总黑名单并跨群清退"""
+        """拉黑 @user / 拉黑 QQ：加入总黑名单，当前群立即踢出，其他群私聊确认"""
         target_ids = self._extract_target_ids(event)
         if not target_ids:
             await event.send(event.plain_result("请@要拉黑的群友，或填写QQ号"))
@@ -84,29 +121,73 @@ class NormalHandle:
 
         added = blacklist_service.add_global_ids(target_ids)
         added_text = "、".join(added) if added else "无新增"
-        await event.send(event.plain_result(f"已写入总黑名单：{added_text}\n开始扫描所有群..."))
 
-        group_name = f"群 {event.get_group_id()}"
-        try:
-            info = await event.bot.get_group_info(group_id=int(event.get_group_id()))
-            data = info.get("data") if isinstance(info, dict) else None
-            source = data if isinstance(data, dict) else info
-            group_name = (
-                f"{source.get('group_name') or group_name}({event.get_group_id()})"
+        current_results = []
+        for user_id in target_ids:
+            result = await self._kick_current_group_user(event, user_id)
+            current_results.append(f"{user_id}：{result}")
+
+        group_name = await self._current_group_label(event)
+        for user_id, result in zip(target_ids, current_results):
+            await blacklist_service.create_pending_kick_task(
+                user_id,
+                notice_group_id=event.get_group_id(),
+                origin_group_name=group_name,
+                current_group_result=result,
+                fallback_client=event.bot,
             )
-        except Exception:
-            group_name = f"{group_name}({event.get_group_id()})"
 
-        summary = await blacklist_service.sweep_users(
-            target_ids,
-            notice_group_id=event.get_group_id(),
-            origin_group_name=group_name,
-            fallback_client=event.bot,
+        await event.send(
+            event.plain_result(
+                "\n".join(
+                    [
+                        f"已写入总黑名单：{added_text}",
+                        "当前群处理：",
+                        *current_results,
+                        "其他群处理清单已尝试私发给超管确认。",
+                    ]
+                )
+            )
         )
-        if summary:
-            await event.send(event.plain_result("全局拉黑处理完成，已尝试私发汇总给主人QQ或超管。"))
-        else:
-            await event.send(event.plain_result("全局拉黑处理完成。"))
+
+    async def remove_global_block(
+        self,
+        event: AiocqhttpMessageEvent,
+        blacklist_service: GlobalBlacklistService,
+    ):
+        """删除总黑名单 QQ"""
+        target_ids = self._extract_target_ids(event)
+        if not target_ids:
+            await event.send(event.plain_result("请填写要移出总黑名单的QQ号"))
+            return
+
+        removed = blacklist_service.remove_global_ids(target_ids)
+        if removed:
+            await event.send(event.plain_result(f"已移出总黑名单：{'、'.join(removed)}"))
+            return
+
+        await event.send(event.plain_result("总黑名单中没有这些QQ号"))
+
+    async def remove_leave_block(self, event: AiocqhttpMessageEvent):
+        """删除当前群退群黑名单 QQ"""
+        target_ids = self._extract_target_ids(event)
+        if not target_ids:
+            await event.send(event.plain_result("请填写要移出退群黑名单的QQ号"))
+            return
+
+        removed = await self.db.remove_many(
+            event.get_group_id(),
+            "leave_block_ids",
+            target_ids,
+            include_default_aggregate=True,
+        )
+        if removed:
+            await event.send(
+                event.plain_result(f"已移出退群黑名单：{'、'.join(removed)}")
+            )
+            return
+
+        await event.send(event.plain_result("当前群退群黑名单中没有这些QQ号"))
 
     async def delete_msg(self, event: AiocqhttpMessageEvent):
         """(引用消息)撤回 | 撤回 @某人(默认bot) 数量(默认50)"""

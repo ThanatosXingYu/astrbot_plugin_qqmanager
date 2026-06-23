@@ -68,6 +68,44 @@ class QQManagerPlugin(Star):
         if not self.curfew.curfew_managers:
             asyncio.create_task(self.curfew.initialize())
 
+    def _is_private_superuser(self, event: AiocqhttpMessageEvent) -> bool:
+        if event.platform_meta.name != "aiocqhttp":
+            return False
+        if not event.is_private_chat():
+            return False
+        return str(event.get_sender_id()) in self.cfg.admins_id
+
+    @staticmethod
+    def _command_tail(event: AiocqhttpMessageEvent) -> str:
+        return event.message_str.partition(" ")[2].strip()
+
+    def _parse_kick_confirm_args(
+        self,
+        event: AiocqhttpMessageEvent,
+        task_id: str | None,
+        selection: str | None,
+    ) -> tuple[str, str]:
+        parsed_task_id = str(task_id or "").strip()
+        parsed_selection = str(selection or "").strip()
+        raw = self._command_tail(event)
+        if not parsed_task_id and raw:
+            parts = raw.split(maxsplit=1)
+            parsed_task_id = parts[0].strip()
+            if not parsed_selection and len(parts) > 1:
+                parsed_selection = parts[1].strip()
+        return parsed_task_id, parsed_selection
+
+    def _parse_task_id(
+        self,
+        event: AiocqhttpMessageEvent,
+        task_id: str | None,
+    ) -> str:
+        parsed_task_id = str(task_id or "").strip()
+        if parsed_task_id:
+            return parsed_task_id
+        parts = self._command_tail(event).split(maxsplit=1)
+        return parts[0].strip() if parts else ""
+
     @filter.command("群管帮助", alias={"QQ管理帮助", "qq群管帮助"})
     @perm_required(PermLevel.MEMBER, check_at=False, check_enabled=False)
     async def show_help(self, event: AiocqhttpMessageEvent):
@@ -76,10 +114,11 @@ class QQManagerPlugin(Star):
             "\n".join(
                 [
                     "【QQ简单群管帮助】",
-                    "基础群管：禁言 <秒数> @群友 / 解禁 @群友 / 踢 @群友 / 拉黑 @群友",
+                    "基础群管：禁言 <秒数> @群友 / 解禁 @群友 / 踢 @群友 / 拉黑 @群友 / 删除总黑名单 QQ / 删除退群黑名单 QQ",
                     "消息管理：撤回",
                     "风控审核：禁词禁言 <秒数> / 设置禁词 / 内置禁词 开|关 / 刷屏禁言 <秒数> / 开启宵禁 / 关闭宵禁",
                     "入群管理：进群审核 开|关 / 进群白词 / 进群黑词 / 进群黑名单 / 退群通知 / 退群拉黑 / 批准 / 驳回",
+                    "私聊超管：确认踢除 <任务ID> all|1,2 / 取消踢除 <任务ID>",
                     "群工具：群友信息",
                     "配置：群管配置 / 群管重置 <群号|all>，默认关闭，请先在插件设置页或群管配置中开启本群。",
                 ]
@@ -115,6 +154,54 @@ class QQManagerPlugin(Star):
     @perm_required(PermLevel.ADMIN)
     async def set_group_block(self, event: AiocqhttpMessageEvent):
         await self.normal.set_group_block(event, self.global_blacklist)
+
+    @filter.command("删除总黑名单", alias={"移除总黑名单", "移出总黑名单"})
+    @perm_required(PermLevel.ADMIN, perm_key="set_group_block")
+    async def remove_global_block(self, event: AiocqhttpMessageEvent):
+        await self.normal.remove_global_block(event, self.global_blacklist)
+
+    @filter.command("删除退群黑名单", alias={"移除退群黑名单", "移出退群黑名单"})
+    @perm_required(PermLevel.ADMIN, perm_key="leave")
+    async def remove_leave_block(self, event: AiocqhttpMessageEvent):
+        await self.normal.remove_leave_block(event)
+
+    @filter.command("确认踢除", desc="私聊确认踢除 <任务ID> all|1,2")
+    async def confirm_pending_kick(
+        self,
+        event: AiocqhttpMessageEvent,
+        task_id: str | None = None,
+        selection: str | None = None,
+    ):
+        if not self._is_private_superuser(event):
+            event.stop_event()
+            return
+
+        parsed_task_id, parsed_selection = self._parse_kick_confirm_args(
+            event, task_id, selection
+        )
+        result = await self.global_blacklist.execute_pending_kick(
+            parsed_task_id,
+            parsed_selection,
+            fallback_client=event.bot,
+        )
+        yield event.plain_result(result)
+        event.stop_event()
+
+    @filter.command("取消踢除", desc="私聊取消踢除 <任务ID>")
+    async def cancel_pending_kick(
+        self,
+        event: AiocqhttpMessageEvent,
+        task_id: str | None = None,
+    ):
+        if not self._is_private_superuser(event):
+            event.stop_event()
+            return
+
+        parsed_task_id = self._parse_task_id(event, task_id)
+        yield event.plain_result(
+            self.global_blacklist.cancel_pending_kick(parsed_task_id)
+        )
+        event.stop_event()
 
     @filter.command("撤回")
     @perm_required(PermLevel.MEMBER)

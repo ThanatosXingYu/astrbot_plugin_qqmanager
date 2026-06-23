@@ -433,7 +433,7 @@ async function saveGlobalConfig() {
   bootstrapData.global_config = data.config || {};
   renderGlobalForm(bootstrapData.global_config);
   const addedCount = Array.isArray(data.added) ? data.added.length : 0;
-  showToast(addedCount > 0 ? "总黑名单已保存并开始清退" : "总黑名单已保存");
+  showToast(addedCount > 0 ? "总黑名单已保存，处理清单已私发超管确认" : "总黑名单已保存");
   return data;
 }
 

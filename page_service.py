@@ -210,10 +210,15 @@ class QQAdminPageService:
         )
         summary = ""
         if added:
-            summary = await self.global_blacklist.sweep_users(
-                added,
-                origin_group_name="插件设置页",
-            )
+            summaries = []
+            for user_id in added:
+                message = await self.global_blacklist.create_pending_kick_task(
+                    user_id,
+                    origin_group_name="插件设置页",
+                )
+                if message:
+                    summaries.append(message)
+            summary = "\n\n".join(summaries)
         return {
             "config": self.get_global_config(),
             "added": added,

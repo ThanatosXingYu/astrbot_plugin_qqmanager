@@ -269,12 +269,77 @@ class QQAdminDB:
             self.cfg.default[field] = copy.deepcopy(current)
             self.cfg.save_config()
 
+    def _remove_from_default_list(self, field: str, values: list[str]) -> list[str]:
+        targets = {str(value).strip() for value in values if str(value).strip()}
+        if not targets:
+            return []
+
+        current = [str(item).strip() for item in self.default_cfg.get(field, [])]
+        removed = [item for item in current if item in targets]
+        if not removed:
+            return []
+
+        next_values = [item for item in current if item not in targets]
+        self.default_cfg[field] = copy.deepcopy(next_values)
+        if isinstance(self.cfg.default, dict) and field in self.cfg.default:
+            self.cfg.default[field] = copy.deepcopy(next_values)
+            self.cfg.save_config()
+        return removed
+
     async def remove(self, gid: str, field: str, value):
         """
         列表字段删除（自动创建列表）
         """
         lst = [i for i in await self.get(gid, field, []) if i != value]
         await self.set(gid, field, lst)
+
+    async def remove_many(
+        self,
+        gid: str,
+        field: str,
+        values: list[str],
+        *,
+        include_default_aggregate: bool = False,
+    ) -> list[str]:
+        """
+        从列表字段批量删除。
+        include_default_aggregate=True 时，会同时从默认模板汇总列表删除。
+        """
+        targets = {str(value).strip() for value in values if str(value).strip()}
+        if not targets:
+            return []
+
+        removed: set[str] = set()
+        follow_default = self.is_group_follow_default(gid)
+        if (
+            include_default_aggregate
+            and field in self.DEFAULT_AGGREGATED_FIELDS
+            and follow_default
+        ):
+            removed.update(self._remove_from_default_list(field, list(targets)))
+
+        raw = self._cache.get(gid)
+        if follow_default:
+            if isinstance(raw, dict) and field in raw:
+                current = [str(item).strip() for item in raw.get(field, [])]
+                next_values = [item for item in current if item not in targets]
+                removed.update(item for item in current if item in targets)
+                raw[field] = next_values
+                self._cache[gid] = raw
+                await self._save_to_db(gid, raw)
+            return sorted(
+                removed,
+                key=lambda value: int(value) if value.isdigit() else value,
+            )
+
+        current = [str(item).strip() for item in await self.get(gid, field, [])]
+        next_values = [item for item in current if item not in targets]
+        removed.update(item for item in current if item in targets)
+        await self.set(gid, field, next_values)
+        return sorted(
+            removed,
+            key=lambda value: int(value) if value.isdigit() else value,
+        )
 
     # ============================== 删除群配置 ==============================
 
