@@ -66,6 +66,12 @@ class QQAdminWebController:
                 ["POST"],
                 "Reset one group config",
             ),
+            (
+                "/settings/global",
+                self.page_update_global,
+                ["POST"],
+                "Update global QQ manager config",
+            ),
         ]
         for path, handler, methods, desc in routes:
             self.context.register_web_api(
@@ -162,4 +168,12 @@ class QQAdminWebController:
         result = await self.service.reset_group_config(group_id)
         return self._jsonify(
             {"ok": True, "message": "Group config reset", "data": result}
+        )
+
+    async def page_update_global(self):
+        payload = await self._request().get_json(force=True, silent=True) or {}
+        config = payload.get("config") or {}
+        result = await self.service.update_global_config(config)
+        return self._jsonify(
+            {"ok": True, "message": "Global config saved", "data": result}
         )

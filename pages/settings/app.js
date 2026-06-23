@@ -38,7 +38,9 @@ const els = {
   toggleThemeBtn: document.getElementById("toggleThemeBtn"),
   refreshGroupsBtn: document.getElementById("refreshGroupsBtn"),
   saveGroupBtn: document.getElementById("saveGroupBtn"),
+  saveGlobalBtn: document.getElementById("saveGlobalBtn"),
   resetGroupBtn: document.getElementById("resetGroupBtn"),
+  globalForm: document.getElementById("globalForm"),
 };
 
 function loadThemePreference() {
@@ -269,9 +271,21 @@ function renderGroupForm(groupPayload) {
   filterAndRenderGroups();
 }
 
+function renderGlobalForm(values = {}) {
+  renderSchemaFields(
+    els.globalForm,
+    bootstrapData.schema.global || {},
+    values,
+    {
+      singleColumn: true,
+    }
+  );
+}
+
 async function loadBootstrapData() {
   const data = await api.safeGet("settings/bootstrap");
   bootstrapData = data;
+  renderGlobalForm(data.global_config || {});
   applyGroupList(data.groups || []);
 }
 
@@ -394,6 +408,18 @@ async function saveGroupConfig() {
   return data;
 }
 
+async function saveGlobalConfig() {
+  const payload = collectFormData(els.globalForm);
+  const data = await api.safePost("settings/global", {
+    config: payload,
+  });
+  bootstrapData.global_config = data.config || {};
+  renderGlobalForm(bootstrapData.global_config);
+  const addedCount = Array.isArray(data.added) ? data.added.length : 0;
+  showToast(addedCount > 0 ? "总黑名单已保存并开始清退" : "总黑名单已保存");
+  return data;
+}
+
 async function resetGroupConfig() {
   const target = String(currentGroup?.group_id || "").trim();
   if (!target) {
@@ -427,6 +453,14 @@ function bindEvents() {
   els.saveGroupBtn.addEventListener("click", async () => {
     try {
       await saveGroupConfig();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+
+  els.saveGlobalBtn.addEventListener("click", async () => {
+    try {
+      await saveGlobalConfig();
     } catch (error) {
       showToast(error.message, "error");
     }

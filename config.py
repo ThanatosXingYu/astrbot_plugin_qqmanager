@@ -113,6 +113,7 @@ class PluginConfig(ConfigNode):
     admin_audit: bool
     random_ban_time: str
     level_threshold: int
+    global_block_ids: list
     perms: dict
 
     _db_version = 3

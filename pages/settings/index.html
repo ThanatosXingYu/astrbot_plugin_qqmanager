@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>QQ群管配置</title>
+    <title>QQ简单群管配置</title>
     <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -35,6 +35,17 @@
                 <section id="groupDetailPanel" class="group-detail-panel">
                     <h3 id="currentGroupName" class="detail-page-title">未选择群</h3>
                     <div id="groupDetailContent" class="detail-stack">
+                        <section class="global-panel">
+                            <div class="section-head">
+                                <div class="section-title">总黑名单</div>
+                                <div class="section-hint">保存后会扫描机器人加入的所有群，并尝试清退新增用户。</div>
+                            </div>
+                            <div id="globalForm" class="form-stack"></div>
+                            <div class="inline-actions">
+                                <button class="ghost-button" id="saveGlobalBtn">保存总黑名单</button>
+                            </div>
+                        </section>
+
                         <div id="groupForm" class="form-stack"></div>
 
                         <div class="sticky-actions">

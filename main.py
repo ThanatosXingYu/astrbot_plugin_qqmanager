@@ -20,6 +20,7 @@ from .core import (
     NormalHandle,
 )
 from .data import QQAdminDB
+from .global_blacklist import GlobalBlacklistService
 from .group_info_cache import QQGroupInfoCache
 from .permission import (
     PermLevel,
@@ -38,6 +39,11 @@ class QQManagerPlugin(Star):
         self.db = QQAdminDB(self.cfg)
         self.db.default_cfg = self.cfg.build_group_default_config()
         self.group_cache = QQGroupInfoCache(context, self.db)
+        self.global_blacklist = GlobalBlacklistService(
+            self.cfg,
+            self.db,
+            self.group_cache,
+        )
         self.normal = NormalHandle(self.cfg, self.db)
         self.banpro = BanproHandle(self.cfg, self.db)
         self.join = JoinHandle(self.cfg, self.db)
@@ -68,16 +74,24 @@ class QQManagerPlugin(Star):
         yield event.plain_result(
             "\n".join(
                 [
-                    "【QQ群管理帮助】",
+                    "【QQ简单群管帮助】",
                     "基础群管：禁言 <秒数> @群友 / 解禁 @群友 / 踢 @群友 / 拉黑 @群友",
                     "消息管理：撤回",
                     "风控审核：禁词禁言 <秒数> / 设置禁词 / 内置禁词 开|关 / 刷屏禁言 <秒数> / 开启宵禁 / 关闭宵禁",
-                    "入群管理：进群审核 开|关 / 进群白词 / 进群黑词 / 进群黑名单 / 批准 / 驳回",
+                    "入群管理：进群审核 开|关 / 进群白词 / 进群黑词 / 进群黑名单 / 退群通知 / 退群拉黑 / 批准 / 驳回",
                     "群工具：群友信息",
-                    "配置：群管配置 / 群管重置 <群号|all>，主人QQ可在 settings 面板或群管配置中设置。",
+                    "配置：群管配置 / 群管重置 <群号|all>，默认关闭，请先在插件设置页或群管配置中开启本群。",
                 ]
             )
         )
+
+    async def _is_group_enabled(self, event: AiocqhttpMessageEvent) -> bool:
+        if event.is_private_chat():
+            return False
+        group_id = event.get_group_id()
+        if not str(group_id).isdigit():
+            return False
+        return bool(await self.db.get(group_id, "plugin_enabled", False))
 
     @filter.command("禁言", desc="禁言 <秒数> @群友")
     @perm_required(PermLevel.ADMIN)
@@ -99,7 +113,7 @@ class QQManagerPlugin(Star):
     @filter.command("拉黑", desc="拉黑@群友")
     @perm_required(PermLevel.ADMIN)
     async def set_group_block(self, event: AiocqhttpMessageEvent):
-        await self.normal.set_group_block(event)
+        await self.normal.set_group_block(event, self.global_blacklist)
 
     @filter.command("撤回")
     @perm_required(PermLevel.MEMBER)
@@ -133,6 +147,8 @@ class QQManagerPlugin(Star):
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def on_ban_words(self, event: AiocqhttpMessageEvent):
         """自动检测违禁词，撤回并禁言"""
+        if not await self._is_group_enabled(event):
+            return
         if not event.is_admin():
             await self.banpro.on_ban_words(event)
 
@@ -148,6 +164,8 @@ class QQManagerPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def spamming_ban(self, event: AiocqhttpMessageEvent):
         """刷屏检测与禁言"""
+        if not await self._is_group_enabled(event):
+            return
         await self.banpro.spamming_ban(event)
 
     @filter.command("开启宵禁", desc="开启宵禁 HH:MM HH:MM")
@@ -268,7 +286,7 @@ class QQManagerPlugin(Star):
         await self.member.get_group_member_list(event)
 
     @filter.command("群管配置", alias={"群管设置"})
-    @perm_required(PermLevel.MEMBER, check_at=False)
+    @perm_required(PermLevel.MEMBER, check_at=False, check_enabled=False)
     async def set_config(self, event: AiocqhttpMessageEvent):
         """群管配置 <群号 | 留空> <配置串>"""
         raw: str = event.message_str.partition(" ")[2].strip()
@@ -293,7 +311,7 @@ class QQManagerPlugin(Star):
         yield event.plain_result(f"【群管配置】更新:\n{config_str}")
 
     @filter.command("群管重置")
-    @perm_required(PermLevel.MEMBER, check_at=False)
+    @perm_required(PermLevel.MEMBER, check_at=False, check_enabled=False)
     async def reset_config(
         self, event: AiocqhttpMessageEvent, group_id: str | int | None = None
     ):

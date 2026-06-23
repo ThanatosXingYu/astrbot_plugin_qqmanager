@@ -19,6 +19,18 @@ function buildGroupRoleBadge(group) {
   return badge;
 }
 
+function buildPluginStatusBadge(group) {
+  const enabled = Boolean(group?.config?.plugin_enabled);
+  const badge = document.createElement("span");
+  badge.className = `plugin-status-badge ${enabled ? "enabled" : "disabled"}`;
+  if (group?.is_default_group) {
+    badge.textContent = enabled ? "默认启用" : "默认关闭";
+  } else {
+    badge.textContent = enabled ? "已启用" : "未启用";
+  }
+  return badge;
+}
+
 export function renderGroupCards({
   root,
   groups,
@@ -46,7 +58,7 @@ export function renderGroupCards({
     avatar.className = "group-card-avatar";
     avatar.src =
       group.avatar ||
-      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'><rect width='96' height='96' rx='24' fill='%23e8c49a'/><text x='48' y='56' text-anchor='middle' font-size='34' fill='%23824f1f' font-family='Arial'>D</text></svg>";
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'><rect width='96' height='96' rx='16' fill='%23e5e7eb'/><text x='48' y='57' text-anchor='middle' font-size='34' fill='%236b7280' font-family='Arial'>Q</text></svg>";
     avatar.alt = `${group.group_name} 群头像`;
     avatar.loading = "lazy";
     card.appendChild(avatar);
@@ -66,6 +78,7 @@ export function renderGroupCards({
     if (roleBadge) {
       title.appendChild(roleBadge);
     }
+    title.appendChild(buildPluginStatusBadge(group));
 
     main.appendChild(title);
 

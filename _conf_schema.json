@@ -5,9 +5,15 @@
     "obvious_hint": true,
     "type": "object",
     "items": {
+      "plugin_enabled": {
+        "description": "启用 QQ简单群管",
+        "hint": "总开关。关闭时，本群不会响应群管命令，也不会执行禁词、刷屏、进群、退群等自动处理。默认关闭，需要在插件设置页或群管配置中按群开启。",
+        "type": "bool",
+        "default": false
+      },
       "join_switch": {
         "description": "进群审核",
-        "hint": "开启后，进群退群模块的功能才会在当前群聊生效，群主、群管理可用命令 “进群审核 开/关” 为当前群聊设置",
+        "hint": "开启后，本群会按白词、黑词、等级、尝试次数等规则处理进群申请；总黑名单、退群黑名单和进群黑名单会在插件启用后优先拦截。",
         "type": "bool",
         "default": true
       },
@@ -65,7 +71,13 @@
       },
       "block_ids": {
         "description": "进群黑名单",
-        "hint": "用户加入群聊时，若用户QQ在黑名单中，则自动拒绝",
+        "hint": "本群进群审核黑名单。命中进群黑词或超过进群尝试次数时会写入这里，只影响当前群。",
+        "type": "list",
+        "default": []
+      },
+      "leave_block_ids": {
+        "description": "退群黑名单",
+        "hint": "本群退群黑名单。用户主动退群并开启退群拉黑后会写入这里，只影响重新申请本群。",
         "type": "list",
         "default": []
       },
@@ -94,13 +106,25 @@
       },
       "leave_block": {
         "description": "主动退群拉黑",
-        "hint": "当用户主动退群时，自动拉黑（即添加到进群黑名单）",
+        "hint": "当用户主动退群时，自动加入本群退群黑名单；该名单只拦截重新申请本群，不影响其他群。",
         "type": "bool",
         "default": false
       },
+      "leave_block_reject_reason": {
+        "description": "退群黑名单拒绝理由",
+        "hint": "退群黑名单用户重新申请本群时使用的拒绝理由。支持变量：{group_id}、{user_id}。",
+        "type": "string",
+        "default": "你已被本群退群黑名单拦截"
+      },
+      "leave_notify_template": {
+        "description": "退群通知模板",
+        "hint": "支持变量：{group_name}、{group_id}、{nickname}、{user_id}、{block_status}。",
+        "type": "text",
+        "default": "【退群通知】群 {group_name}({group_id})\n{nickname}({user_id}) 主动退群了{block_status}"
+      },
       "owner_ids": {
         "description": "主人QQ",
-        "hint": "用于接收本群管理通知的QQ号列表。配置后，退群通知会优先私聊这些主人QQ；未配置则按原逻辑发到群内。",
+        "hint": "用于接收本群管理通知的QQ号列表。配置后，退群通知和总黑名单处理汇总会优先私聊这些主人QQ；未配置则回退到默认群主人QQ或 AstrBot 超管。",
         "type": "list",
         "default": []
       },
@@ -166,9 +190,15 @@
     },
     "default": 50
   },
+  "global_block_ids": {
+    "description": "总黑名单",
+    "hint": "全局 QQ 黑名单。命中后会拒绝加入任何已启用插件的群；通过插件设置页保存或使用“拉黑”命令新增时，会尝试从机器人加入的所有群中踢出该用户并私发汇总。",
+    "type": "list",
+    "default": []
+  },
   "perms": {
     "description": "指令权限管理",
-    "hint": "设置各个命令的使用权限",
+    "hint": "设置各个命令的使用权限。这里的“超管”来自 AstrBot 全局管理员 admins_id，不等同于本插件的主人QQ通知名单。",
     "type": "object",
     "items": {
       "set_group_ban": {
@@ -181,7 +211,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "cancel_group_ban": {
         "description": "解禁",
@@ -193,7 +223,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "set_group_kick": {
         "description": "踢",
@@ -205,7 +235,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "set_group_block": {
         "description": "拉黑",
@@ -217,7 +247,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "delete_msg": {
         "description": "撤回",
@@ -229,7 +259,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "成员"
+        "default": "超管"
       },
       "word_ban": {
         "description": "禁词指令",
@@ -242,7 +272,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "spamming": {
         "description": "刷屏禁言指令",
@@ -255,7 +285,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "curfew": {
         "description": "宵禁指令",
@@ -268,7 +298,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "join": {
         "description": "进群审核指令",
@@ -281,7 +311,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "approve": {
         "description": "批准/驳回（进群申请）",
@@ -293,7 +323,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "高等级成员"
+        "default": "超管"
       },
       "welcome": {
         "description": "进群欢迎与禁言",
@@ -306,7 +336,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "leave": {
         "description": "退群通知与拉黑",
@@ -319,7 +349,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "get_group_member_list": {
         "description": "群友信息",
@@ -331,7 +361,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "成员"
+        "default": "超管"
       },
       "set_config": {
         "description": "群管配置",
@@ -343,7 +373,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       },
       "reset_config": {
         "description": "群管重置",
@@ -355,7 +385,7 @@
           "高等级成员",
           "成员"
         ],
-        "default": "管理员"
+        "default": "超管"
       }
     }
   }

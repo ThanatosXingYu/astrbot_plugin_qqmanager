@@ -7,6 +7,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 
 from ..config import PluginConfig
 from ..data import QQAdminDB
+from ..global_blacklist import GlobalBlacklistService
 from ..utils import get_ats, get_nickname
 
 
@@ -56,18 +57,56 @@ class NormalHandle:
             )
             await event.send(event.plain_result(f"已将【{tid}-{target_name}】踢出本群"))
 
-    async def set_group_block(self, event: AiocqhttpMessageEvent):
-        """拉黑 @user"""
-        for tid in get_ats(event):
-            target_name = await get_nickname(event, user_id=tid)
-            await event.bot.set_group_kick(
-                group_id=int(event.get_group_id()),
-                user_id=int(tid),
-                reject_add_request=True,
+    @staticmethod
+    def _extract_target_ids(event: AiocqhttpMessageEvent) -> list[str]:
+        target_ids = get_ats(event)
+        raw = event.message_str.partition(" ")[2]
+        for token in raw.split():
+            normalized = token.strip()
+            if normalized.isdigit() and normalized not in target_ids:
+                target_ids.append(normalized)
+        return target_ids
+
+    async def set_group_block(
+        self,
+        event: AiocqhttpMessageEvent,
+        blacklist_service: GlobalBlacklistService,
+    ):
+        """拉黑 @user / 拉黑 QQ：加入总黑名单并跨群清退"""
+        target_ids = self._extract_target_ids(event)
+        if not target_ids:
+            await event.send(event.plain_result("请@要拉黑的群友，或填写QQ号"))
+            return
+
+        if event.get_self_id() in target_ids:
+            await event.send(event.plain_result("不能把机器人自己加入总黑名单"))
+            return
+
+        added = blacklist_service.add_global_ids(target_ids)
+        added_text = "、".join(added) if added else "无新增"
+        await event.send(event.plain_result(f"已写入总黑名单：{added_text}\n开始扫描所有群..."))
+
+        group_name = f"群 {event.get_group_id()}"
+        try:
+            info = await event.bot.get_group_info(group_id=int(event.get_group_id()))
+            data = info.get("data") if isinstance(info, dict) else None
+            source = data if isinstance(data, dict) else info
+            group_name = (
+                f"{source.get('group_name') or group_name}({event.get_group_id()})"
             )
-            await event.send(
-                event.plain_result(f"已将【{tid}-{target_name}】踢出本群并拉黑!")
-            )
+        except Exception:
+            group_name = f"{group_name}({event.get_group_id()})"
+
+        summary = await blacklist_service.sweep_users(
+            target_ids,
+            notice_group_id=event.get_group_id(),
+            origin_group_name=group_name,
+            fallback_client=event.bot,
+        )
+        if summary:
+            await event.send(event.plain_result("全局拉黑处理完成，已尝试私发汇总给主人QQ或超管。"))
+        else:
+            await event.send(event.plain_result("全局拉黑处理完成。"))
 
     async def delete_msg(self, event: AiocqhttpMessageEvent):
         """(引用消息)撤回 | 撤回 @某人(默认bot) 数量(默认50)"""

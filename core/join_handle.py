@@ -1,3 +1,5 @@
+from typing import Any
+
 from aiocqhttp import CQHttp
 
 from astrbot.api import logger
@@ -23,6 +25,83 @@ class JoinHandle:
             for item in ids or []
             if (qq := str(item).strip()).isdigit()
         ]
+
+    def _global_block_ids(self) -> list[str]:
+        return self._clean_ids(getattr(self.cfg, "global_block_ids", []))
+
+    @staticmethod
+    def _format_template(template: str, values: dict[str, Any], fallback: str) -> str:
+        try:
+            return str(template or fallback).format(**values)
+        except (KeyError, ValueError, IndexError):
+            return fallback.format(**values)
+
+    async def _get_group_name(self, client: CQHttp, gid: str) -> str:
+        try:
+            info = await client.get_group_info(group_id=int(gid))
+            data = info.get("data") if isinstance(info, dict) else None
+            source = data if isinstance(data, dict) else info
+            return str(source.get("group_name") or "").strip() or f"群 {gid}"
+        except Exception:
+            return f"群 {gid}"
+
+    def _format_leave_reject_reason(self, gid: str, uid: str) -> str:
+        group_config = self.db.get_group_snapshot(gid)
+        template = str(
+            group_config.get(
+                "leave_block_reject_reason",
+                "你已被本群退群黑名单拦截",
+            )
+        )
+        return self._format_template(
+            template,
+            {"group_id": gid, "user_id": uid},
+            "你已被本群退群黑名单拦截",
+        )
+
+    async def _format_leave_notice(
+        self,
+        client: CQHttp,
+        gid: str,
+        uid: str,
+        nickname: str,
+        block_status: str,
+    ) -> str:
+        group_config = self.db.get_group_snapshot(gid)
+        group_name = await self._get_group_name(client, gid)
+        template = str(
+            group_config.get(
+                "leave_notify_template",
+                "【退群通知】群 {group_name}({group_id})\n"
+                "{nickname}({user_id}) 主动退群了{block_status}",
+            )
+        )
+        values = {
+            "group_name": group_name,
+            "group_id": gid,
+            "nickname": nickname,
+            "user_id": uid,
+            "block_status": block_status,
+        }
+        fallback = (
+            "【退群通知】群 {group_name}({group_id})\n"
+            "{nickname}({user_id}) 主动退群了{block_status}"
+        )
+        return self._format_template(template, values, fallback)
+
+    async def get_block_reason(self, gid: str, uid: str) -> str | None:
+        if uid in self._global_block_ids():
+            return "全局黑名单用户"
+
+        leave_block_ids = await self.db.get(gid, "leave_block_ids", [])
+        if uid in self._clean_ids(leave_block_ids):
+            return self._format_leave_reject_reason(gid, uid)
+
+        block_ids = await self.db.get(gid, "block_ids", [])
+        if uid in self._clean_ids(block_ids):
+            return "本群进群黑名单用户"
+
+        return None
 
     async def _send_private(
         self, client: CQHttp, user_ids: list[str], message: str, target_name: str
@@ -217,9 +296,9 @@ class JoinHandle:
     ) -> tuple[bool | None, str]:
         """判断是否让该用户入群，返回原因"""
         # 1.黑名单用户
-        block_ids = await self.db.get(gid, "block_ids", [])
-        if uid in block_ids:
-            return False, "黑名单用户"
+        block_reason = await self.get_block_reason(gid, uid)
+        if block_reason:
+            return False, block_reason
 
         # 2.QQ等级过低
         min_level = await self.db.get(gid, "join_min_level")
@@ -271,6 +350,8 @@ class JoinHandle:
             return
 
         gid: str = str(raw.get("group_id", ""))
+        if not gid or not await self.db.get(gid, "plugin_enabled", False):
+            return
         client = event.bot
         uid: str = str(raw.get("user_id", ""))
 
@@ -280,9 +361,6 @@ class JoinHandle:
             and raw.get("request_type") == "group"
             and raw.get("sub_type") == "add"
         ):
-            # 进群审核总开关
-            if not await self.db.get(gid, "join_switch"):
-                return
             comment = raw.get("comment")
             flag = raw.get("flag", "")
             info = await client.get_stranger_info(user_id=int(uid))
@@ -293,7 +371,13 @@ class JoinHandle:
                 level = info.get("qqLevel") or info.get("level")
 
             # 判断是否通过
-            approve, reason = await self.should_approve(gid, uid, comment, level)
+            block_reason = await self.get_block_reason(gid, uid)
+            if block_reason:
+                approve, reason = False, block_reason
+            elif not await self.db.get(gid, "join_switch"):
+                return
+            else:
+                approve, reason = await self.should_approve(gid, uid, comment, level)
             # 清理缓存
             if approve is True:
                 self._fail.pop(f"{gid}_{uid}", None)
@@ -307,7 +391,10 @@ class JoinHandle:
                         approve=approve,
                         reason="" if approve else reason,
                     )
-                    if not approve and reason == "黑名单用户":
+                    if not approve and reason in {
+                        "全局黑名单用户",
+                        "本群进群黑名单用户",
+                    }:
                         return
                     approve_msg = f"自动{'批准' if approve else '驳回'}：{reason}"
                 except Exception as e:
@@ -342,10 +429,17 @@ class JoinHandle:
             leave_block = await self.db.get(gid, "leave_block", False)
             if leave_notify or leave_block:
                 nickname = await get_nickname(event, uid)
-                msg = f"【退群通知】群 {gid}\n{nickname}({uid}) 主动退群了"
+                block_status = ""
                 if leave_block:
-                    await self.db.add(gid, "block_ids", uid)
-                    msg += "，已拉黑"
+                    await self.db.add(gid, "leave_block_ids", uid)
+                    block_status = "，已加入本群退群黑名单"
+                msg = await self._format_leave_notice(
+                    client,
+                    gid,
+                    uid,
+                    nickname,
+                    block_status,
+                )
                 if leave_notify:
                     sent_to_owner = await self._send_owner(client, gid, msg)
                     if not sent_to_owner:
@@ -353,6 +447,18 @@ class JoinHandle:
 
         # 进群欢迎、禁言
         elif raw.get("notice_type") == "group_increase" and uid != event.get_self_id():
+            block_reason = await self.get_block_reason(gid, uid)
+            if block_reason:
+                try:
+                    await client.set_group_kick(
+                        group_id=int(gid),
+                        user_id=int(uid),
+                        reject_add_request=True,
+                    )
+                except Exception as exc:
+                    logger.warning("黑名单成员 %s 进群后清退失败: %s", uid, exc)
+                return
+
             # 进群欢迎
             join_welcome = await self.db.get(gid, "join_welcome")
             if join_welcome:

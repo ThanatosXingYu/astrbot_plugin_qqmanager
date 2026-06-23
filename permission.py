@@ -111,14 +111,14 @@ class PermissionManager:
     ) -> str | None:
         user_level = await self.get_perm_level(event, user_id=event.get_sender_id())
 
-        # 未指定权限，则默认至少需要管理员权限
+        # 未指定权限时，默认收紧到 AstrBot 超管
         group_config = (
             self.db.get_group_snapshot(event.get_group_id())
             if self.db is not None
             else {"perms": self.cfg.perms if self.cfg else {}}
         )
         perms = group_config.get("perms", {})
-        required_level = PermLevel.from_str(str(perms.get(perm_key, "管理员")))
+        required_level = PermLevel.from_str(str(perms.get(perm_key, "超管")))
 
         if user_level > required_level:
             return f"你没{required_level}权限"
@@ -143,12 +143,14 @@ def perm_required(
     bot_perm: PermLevel = PermLevel.ADMIN,
     perm_key: str | None = None,
     check_at: bool = True,
+    check_enabled: bool = True,
 ):
     """
     权限检查装饰器。
     :param perm_key: 可选。用户执行命令所需的最低权限键名，默认使用被装饰函数的函数名。
     :param bot_perm: Bot 执行此命令所需的最低权限等级。
     :param check_at: 是否检查“是否有权对被@者实施操作”。
+    :param check_enabled: 是否要求当前群已启用插件。
     """
 
     def decorator(
@@ -180,6 +182,15 @@ def perm_required(
                 yield event.plain_result("内部错误：权限系统未正确加载")
                 event.stop_event()
                 return
+
+            if check_enabled and perm_manager.db is not None:
+                enabled = await perm_manager.db.get(
+                    event.get_group_id(), "plugin_enabled", False
+                )
+                if not enabled:
+                    yield event.plain_result("本群未启用QQ简单群管，请先在插件设置页开启。")
+                    event.stop_event()
+                    return
 
             # 判断权限
             result = await perm_manager.perm_block(

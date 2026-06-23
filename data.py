@@ -17,6 +17,7 @@ class QQAdminDB:
 
     # ====================== 字段中英文映射 ======================
     FIELD_MAP = {
+        "plugin_enabled": "启用插件",
         "join_switch": "进群审核",
         "join_min_level": "进群等级门槛",
         "join_max_time": "进群尝试次数",
@@ -25,10 +26,13 @@ class QQAdminDB:
         "join_no_match_reject": "未中白词拒绝",
         "reject_word_block": "命中黑词拉黑",
         "block_ids": "进群黑名单",
+        "leave_block_ids": "退群黑名单",
         "join_welcome": "进群欢迎词",
         "join_ban_time": "进群禁言时长",
         "leave_notify": "主动退群通知",
         "leave_block": "主动退群拉黑",
+        "leave_block_reject_reason": "退群拒绝理由",
+        "leave_notify_template": "退群通知模板",
         "owner_ids": "主人QQ",
         "builtin_ban": "启用内置禁词",
         "custom_ban_words": "自定义违禁词",
@@ -276,7 +280,7 @@ class QQAdminDB:
 
             # 其他字段 => 按原样
             else:
-                val_str = str(value)
+                val_str = str(value).replace("\n", "\\n")
 
             lines.append(f"{cn_key}: {val_str}")
 
@@ -328,7 +332,7 @@ class QQAdminDB:
 
             # 字符串字段
             else:
-                value = raw_v
+                value = raw_v.replace("\\n", "\n")
 
             data[eng_key] = value
 

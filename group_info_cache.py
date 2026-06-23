@@ -81,6 +81,18 @@ class QQGroupInfoCache:
             return
         self._group_detail_cache.clear()
 
+    def get_client_for_group(self, group_id: str | int | None) -> Any | None:
+        normalized_group_id = str(group_id or "").strip()
+        if not normalized_group_id:
+            return None
+        return self._group_clients.get(normalized_group_id)
+
+    def get_any_client(self) -> Any | None:
+        if self._group_clients:
+            return next(iter(self._group_clients.values()))
+        clients = self._iter_clients()
+        return clients[0] if clients else None
+
     def remove_group(self, group_id: str | None) -> None:
         normalized_group_id = str(group_id or "").strip()
         if not normalized_group_id:

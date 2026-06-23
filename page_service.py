@@ -10,6 +10,7 @@ from astrbot.api import logger
 
 from .config import PluginConfig
 from .data import QQAdminDB
+from .global_blacklist import GlobalBlacklistService
 from .group_info_cache import QQGroupInfoCache
 from .permission import perm_manager
 from .utils import parse_bool
@@ -23,6 +24,7 @@ class QQAdminPageService:
         self.cfg = cfg
         self.db = db
         self.group_cache = group_cache
+        self.global_blacklist = GlobalBlacklistService(cfg, db, group_cache)
         self.schema = self._load_schema(cfg.plugin_dir / "_conf_schema.json")
 
     @property
@@ -38,11 +40,20 @@ class QQAdminPageService:
             **self._get_group_overlay_schema(),
         }
 
+    @property
+    def global_schema(self) -> dict[str, Any]:
+        keys = ["global_block_ids"]
+        return {
+            key: copy.deepcopy(self.schema[key]) for key in keys if key in self.schema
+        }
+
     async def get_bootstrap_payload(self) -> dict[str, Any]:
         return {
             "schema": {
                 "group": self.group_schema,
+                "global": self.global_schema,
             },
+            "global_config": self.get_global_config(),
             "groups": await self.list_groups(),
         }
 
@@ -89,6 +100,10 @@ class QQAdminPageService:
                 {
                     **group,
                     "is_default_group": False,
+                    "config": {
+                        FOLLOW_DEFAULT_KEY: self.db.is_group_follow_default(group_id),
+                        **self.db.get_group_snapshot(group_id),
+                    },
                 }
             )
 
@@ -169,6 +184,32 @@ class QQAdminPageService:
             "is_default_group": True,
         }
 
+    def get_global_config(self) -> dict[str, Any]:
+        return {
+            "global_block_ids": self.global_blacklist.get_global_ids(),
+        }
+
+    async def update_global_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        sanitized = self._sanitize_value(
+            payload,
+            {"type": "object", "items": self.global_schema},
+            self.get_global_config(),
+        )
+        added = self.global_blacklist.replace_global_ids(
+            sanitized.get("global_block_ids", [])
+        )
+        summary = ""
+        if added:
+            summary = await self.global_blacklist.sweep_users(
+                added,
+                origin_group_name="插件设置页",
+            )
+        return {
+            "config": self.get_global_config(),
+            "added": added,
+            "summary": summary,
+        }
+
     async def update_default_group_config(
         self,
         payload: dict[str, Any],
@@ -231,6 +272,10 @@ class QQAdminPageService:
             self.cfg.random_ban_time = updated["random_ban_time"]
         if "level_threshold" in updated:
             self.cfg.level_threshold = updated["level_threshold"]
+        if "global_block_ids" in updated:
+            self.cfg.global_block_ids = self.global_blacklist.clean_ids(
+                updated["global_block_ids"]
+            )
         if "perms" in updated:
             self._merge_dict(self.cfg.perms, updated["perms"])
 
