@@ -1,6 +1,11 @@
-name: helloworld # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
-display_name: helloworld # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
-desc: AstrBot 插件示例。 # 插件简短描述
-version: v1.3.0 # 插件版本号。格式：v1.1.1 或者 v1.1
-author: Soulter # 作者
-repo: https://github.com/Soulter/helloworld # 插件的仓库地址
+name: astrbot_plugin_qqmanager
+display_name: QQ群管理
+desc: "[仅 aiocqhttp] QQ 群管理插件，提供禁言、解禁、踢人、拉黑、撤回、进群审核、退群拉黑、主人QQ私信通知、禁词、刷屏检测、宵禁、群友信息和配置面板等能力。"
+short_desc: QQ 群管理、审核与配置面板。
+help: 发送 /群管帮助 查看命令用法。
+version: v0.1.0
+author: thanatos
+repo: ""
+support_platforms:
+  - aiocqhttp
+astrbot_version: ">=4.24.2"
